@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#151719">
+  <title>encryptService - Cifrado</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1120;
+      --panel: #111a2a;
+      --field: #0c1422;
+      --line: #26354b;
+      --text: #edf2f8;
+      --muted: #91a0b5;
+      --accent: #69dbb2;
+      --danger: #f08b8b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background: radial-gradient(ellipse at 12% 0%, #1a3152 0, transparent 34%), var(--bg);
+      color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    .shell {
+      width: min(1100px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 26px;
+    }
+
+    header {
+      margin-bottom: 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-bottom: 42px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid #69dbb255;
+      border-radius: 11px;
+      background: #69dbb214;
+      color: var(--accent);
+    }
+
+    .brand-mark svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.7;
+    }
+
+    .brand-name {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .brand-caption {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .algorithm {
+      margin-left: auto;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #b4c2d5;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: .04em;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: clamp(30px, 4vw, 42px);
+      font-weight: 650;
+      letter-spacing: -.045em;
+      line-height: 1.12;
+    }
+
+    .intro {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: start;
+      gap: 20px;
+    }
+
+    .card {
+      min-width: 0;
+      padding: 24px;
+      border: 1px solid #30425b;
+      border-radius: 13px;
+      background: linear-gradient(160deg, #142033 0%, var(--panel) 50%);
+      box-shadow: 0 18px 44px #0000001c;
+      transition: border-color .18s ease, transform .18s ease;
+    }
+
+    .card:hover {
+      border-color: #3c5673;
+      transform: translateY(-2px);
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 650;
+      letter-spacing: -.02em;
+    }
+
+    .hint {
+      min-height: 44px;
+      margin: 5px 0 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    label {
+      display: block;
+      margin: 0 0 7px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 220px;
+      padding: 14px;
+      border: 1px solid #2d3d53;
+      border-radius: 8px;
+      outline: none;
+      resize: vertical;
+      background: #0c1422;
+      color: var(--text);
+      font: 13px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px #69dbb21a;
+    }
+
+    #cipherInput {
+      min-height: 95px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      min-height: 38px;
+      padding: 0 13px;
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      background: var(--accent);
+      color: #092018;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    }
+
+    button:hover {
+      background: #55c99f;
+      border-color: #55c99f;
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: .65;
+    }
+
+    .secondary {
+      border-color: var(--line);
+      background: #202b3b;
+      color: #dce5ef;
+    }
+
+    .secondary:hover {
+      background: #2a394d;
+      border-color: #405574;
+    }
+
+    .copy-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      min-width: 42px;
+      padding: 0;
+    }
+
+    .copy-button svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .copy-button .check-icon {
+      display: none;
+      color: var(--accent);
+    }
+
+    .copy-button.copied .copy-icon {
+      display: none;
+    }
+
+    .copy-button.copied .check-icon {
+      display: block;
+    }
+
+    .result {
+      margin-top: 16px;
+    }
+
+    .result[hidden] {
+      display: none;
+    }
+
+    .result textarea {
+      min-height: 135px;
+    }
+
+    .status {
+      min-height: 20px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status.success {
+      color: var(--accent);
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .site-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 30px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .footer-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      text-decoration: none;
+    }
+
+    .footer-link:hover {
+      color: var(--accent);
+      background: transparent;
+      border-color: transparent;
+      filter: none;
+      transform: none;
+    }
+
+    .footer-link svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    .footer-link.email svg {
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.7;
+    }
+
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      padding: 11px 16px;
+      border: 1px solid #38536a;
+      border-radius: 9px;
+      background: #172538;
+      color: var(--text);
+      box-shadow: 0 14px 36px #0007;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity .18s ease, transform .18s ease;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 700px) {
+      .shell {
+        width: calc(100% - 32px);
+        padding: 22px 0;
+      }
+
+      .brand {
+        margin-bottom: 32px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card {
+        padding: 19px;
+      }
+
+      h1 {
+        font-size: 32px;
+      }
+
+      .site-footer {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.9 8.1 7 10 4.1-1.9 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
+        <span>
+          <span class="brand-name">encryptService</span><br>
+          <span class="brand-caption">Protección de datos</span>
+        </span>
+        <span class="algorithm">AES-256-GCM</span>
+      </div>
+      <h1>Cifra y descifra datos</h1>
+      <p class="intro">Cifra objetos JSON para intercambiarlos con tus aplicaciones.</p>
+    </header>
+
+    <div class="grid">
+      <section class="card" aria-labelledby="encryptTitle">
+        <h2 id="encryptTitle">Cifrar</h2>
+        <p class="hint">Escribe un objeto JSON. El resultado será una cadena Base64 lista para enviar.</p>
+        <label for="plainInput">Objeto JSON</label>
+        <textarea id="plainInput" spellcheck="false">{
+  "customerId": "CUST-1042",
+  "email": "cliente@empresa.com",
+  "accountStatus": "ACTIVE",
+  "roles": ["CUSTOMER"]
+}</textarea>
+        <div class="actions">
+          <button id="encryptButton" type="button">Cifrar objeto</button>
+          <button id="clearEncrypt" class="secondary" type="button">Limpiar</button>
+        </div>
+        <div id="encryptStatus" class="status" role="status" aria-live="polite"></div>
+        <div id="encryptedResult" class="result" hidden>
+          <label for="cipherInput">Valor de data cifrado</label>
+          <textarea id="cipherInput" spellcheck="false"></textarea>
+          <div class="actions">
+            <button id="copyButton" class="secondary copy-button" type="button" aria-label="Copiar valor" title="Copiar valor">
+              <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="8" y="8" width="12" height="12" rx="2"></rect>
+                <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+              </svg>
+              <svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m5 12 4 4L19 6"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="decryptTitle">
+        <h2 id="decryptTitle">Descifrar</h2>
+        <p class="hint">Pega la cadena cifrada recibida en el campo <code>data</code>.</p>
+        <label for="decryptInput">Valor de data</label>
+        <textarea id="decryptInput" spellcheck="false" placeholder="Pega aquí el valor Base64 cifrado"></textarea>
+        <div class="actions">
+          <button id="decryptButton" type="button">Descifrar objeto</button>
+          <button id="clearDecrypt" class="secondary" type="button">Limpiar</button>
+        </div>
+        <div id="decryptStatus" class="status" role="status" aria-live="polite"></div>
+        <div id="decryptedResult" class="result" hidden>
+          <label for="plainResult">Objeto descifrado</label>
+          <textarea id="plainResult" spellcheck="false" readonly></textarea>
+        </div>
+      </section>
+    </div>
+    <footer class="site-footer">
+      <span>Desarrollado por Jhonatan Zambrano</span>
+      <div class="footer-links">
+        <a class="footer-link" href="https://github.com/jhonatan0820" target="_blank" rel="noopener noreferrer" aria-label="GitHub de Jhonatan Zambrano" title="GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.53v-2.08c-3.1.68-3.76-1.32-3.76-1.32-.5-1.29-1.23-1.63-1.23-1.63-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.59 1.21 3.22.93.1-.72.39-1.21.7-1.49-2.47-.28-5.07-1.24-5.07-5.5 0-1.22.44-2.21 1.15-2.99-.12-.28-.5-1.42.11-2.95 0 0 .94-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.67.11 2.95.72.78 1.15 1.77 1.15 2.99 0 4.27-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06V22c0 .29.2.63.76.52A11.1 11.1 0 0 0 12 .9Z"/></svg>
+          <span>GitHub</span>
+        </a>
+        <button id="emailButton" class="footer-link email" type="button" aria-label="Copiar correo electrónico" title="Copiar correo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>
+          <span>Correo</span>
+        </button>
+      </div>
+    </footer>
+  </main>
+  <div id="copyToast" class="toast" role="status" aria-live="polite">Copiado al portapapeles</div>
+  <script>
+    const byId = (id) => document.getElementById(id);
+
+    function setStatus(id, message, kind = "") {
+      const element = byId(id);
+      element.textContent = message;
+      element.className = `status ${kind}`.trim();
+    }
+
+    function showToast(message) {
+      const toast = byId("copyToast");
+      toast.textContent = message;
+      toast.classList.add("visible");
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toast.classList.remove("visible"), 2500);
+    }
+
+    async function postJson(path, body) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.message || result.error || `Error HTTP ${response.status}`);
+      }
+      return result;
+    }
+
+    async function withButton(buttonId, statusId, action) {
+      const button = byId(buttonId);
+      button.disabled = true;
+      setStatus(statusId, "Procesando…");
+      try {
+        await action();
+      } catch (error) {
+        setStatus(statusId, error.message || "Ocurrió un error.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    byId("encryptButton").addEventListener("click", () => withButton("encryptButton", "encryptStatus", async () => {
+      let data;
+      try { data = JSON.parse(byId("plainInput").value); }
+      catch { throw new Error("Revisa el JSON: tiene un formato inválido."); }
+      if (!data || Array.isArray(data) || typeof data !== "object") {
+        throw new Error("El contenido debe ser un objeto JSON.");
+      }
+      const result = await postJson("/cryptoService/web/encrypt", { data });
+      byId("cipherInput").value = result.data;
+      byId("encryptedResult").hidden = false;
+      setStatus("encryptStatus", "Objeto cifrado correctamente.", "success");
+    }));
+
+    byId("decryptButton").addEventListener("click", () => withButton("decryptButton", "decryptStatus", async () => {
+      const data = byId("decryptInput").value.trim();
+      if (!data) throw new Error("Pega el valor cifrado en data.");
+      const result = await postJson("/cryptoService/web/decrypt", { data });
+      byId("plainResult").value = JSON.stringify(result.data, null, 2);
+      byId("decryptedResult").hidden = false;
+      setStatus("decryptStatus", "Objeto descifrado correctamente.", "success");
+    }));
+
+    let copyResetTimeout;
+    let toastTimeout;
+
+    byId("copyButton").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(byId("cipherInput").value);
+        const button = byId("copyButton");
+        button.classList.add("copied");
+        clearTimeout(copyResetTimeout);
+        copyResetTimeout = setTimeout(() => button.classList.remove("copied"), 3000);
+        showToast("Valor copiado al portapapeles");
+      } catch {
+        byId("cipherInput").select();
+        setStatus("encryptStatus", "Seleccioné el valor; cópialo manualmente.");
+      }
+    });
+
+    byId("emailButton").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText("jhonizam2023@gmail.com");
+        showToast("Correo copiado al portapapeles");
+      } catch {
+        showToast("No se pudo copiar el correo");
+      }
+    });
+
+    byId("clearEncrypt").addEventListener("click", () => {
+      byId("plainInput").value = "";
+      byId("cipherInput").value = "";
+      byId("encryptedResult").hidden = true;
+      setStatus("encryptStatus", "");
+    });
+
+    byId("clearDecrypt").addEventListener("click", () => {
+      byId("decryptInput").value = "";
+      byId("plainResult").value = "";
+      byId("decryptedResult").hidden = true;
+      setStatus("decryptStatus", "");
+    });
+  </script>
+</body>
+</html>

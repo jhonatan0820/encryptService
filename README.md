@@ -20,7 +20,7 @@ El cifrado es una capa adicional de protección. No sustituye HTTPS, autenticaci
 
 ## La solución
 
-El servicio serializa el objeto JSON y lo cifra usando **AES-256-GCM**. Para cada operación genera un IV aleatorio de 12 bytes y lo empaqueta con el contenido cifrado y su etiqueta de autenticación en una cadena Base64. La API mantiene un solo campo `data`; el IV y la clave no se exponen como campos separados.
+El servicio serializa el objeto JSON y lo cifra usando **AES-256-GCM**. Para cada operación genera un IV aleatorio de 12 bytes y lo empaqueta con el contenido cifrado y su etiqueta de autenticación en una cadena Base64. El microservicio mantiene un solo campo `data`; el IV y la clave no se exponen como campos separados.
 
 Hay una clave para las integraciones entre servicios y otra para el front web. El front incluido consume su propio conjunto de rutas.
 
@@ -46,9 +46,9 @@ flowchart LR
 | Front de demostración | HTML, CSS y JavaScript |
 | Build | Maven |
 
-## API
+## MICROSERVICIO
 
-La API escucha en el puerto `8081`.
+el MICROSERVICIO escucha en el puerto `8080`.
 
 ### Integraciones entre servicios
 

@@ -6,6 +6,8 @@ services:
       dockerfile: Dockerfile
     expose:
       - "8080"
+    volumes:
+      - ./application-secrets.yml:/app/application-secrets.yml:ro
     restart: unless-stopped
     networks:
       - homelab

@@ -10,6 +10,10 @@ Cada operación devuelve el ciphertext en un solo campo:
 
 La cadena Base64 contiene, en orden, una versión de formato (`0x01`), dos bytes con la longitud de la llave RSA envuelta, la llave AES envuelta, el IV de 12 bytes y el ciphertext con la etiqueta GCM. Así el vector y el resto del sobre viajan juntos en `data`.
 
+## Demo pública
+
+Disponible en: https://encryptservice.dotacioneszambrano.com/
+
 ## Dos alcances aislados
 
 El servicio mantiene un par RSA y un token distintos para cada alcance:
@@ -87,3 +91,4 @@ mvn spring-boot:run
 ```
 
 Para desplegar con Docker Compose, el archivo `application-secrets.yml` se monta como solo lectura y el servicio expone el puerto interno `8080` a la red `homelab`.
+

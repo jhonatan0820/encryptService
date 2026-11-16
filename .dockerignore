@@ -6,3 +6,4 @@ target
 *.log
 .env
 .env.*
+application-secrets.yml

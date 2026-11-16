@@ -1,1 +1,19 @@
+# Secrets and environment
 application-secrets.yml
+.env
+.env.*
+
+# Maven
+target/
+
+# IDE
+.classpath
+.project
+.settings/
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

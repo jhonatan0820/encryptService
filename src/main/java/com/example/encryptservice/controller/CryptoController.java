@@ -1,87 +1,70 @@
 package com.example.encryptservice.controller;
 
-import com.example.encryptservice.service.SymmetricCryptoService;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.encryptservice.service.HybridCryptoService;
+import com.example.encryptservice.service.HybridCryptoService.Scope;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import java.security.GeneralSecurityException;
 import java.util.Map;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/cryptoService")
 public class CryptoController {
-    private final SymmetricCryptoService cryptoService;
-    private final ObjectMapper objectMapper;
+    private final HybridCryptoService crypto;
+    public CryptoController(HybridCryptoService crypto) { this.crypto = crypto; }
 
-    public CryptoController(SymmetricCryptoService cryptoService, ObjectMapper objectMapper) {
-        this.cryptoService = cryptoService;
-        this.objectMapper = objectMapper;
+    @GetMapping("/public-key") public ResponseEntity<Map<String,String>> serviceKey() {
+        return keyResponse(Scope.SERVICE);
+    }
+    @GetMapping("/web/public-key") public ResponseEntity<Map<String,String>> webKey() {
+        return keyResponse(Scope.WEB);
+    }
+    @GetMapping("/web/config") public ResponseEntity<Map<String,String>> webConfig() {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Map.of("publicKeyBase64", crypto.publicKeyBase64(Scope.WEB), "webToken", crypto.webToken()));
+    }
+    private ResponseEntity<Map<String,String>> keyResponse(Scope scope) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Map.of("publicKeyBase64", crypto.publicKeyBase64(scope)));
     }
 
-    @PostMapping("/encrypt")
-    public CipherResponse encrypt(@Valid @RequestBody EncryptRequest request) {
-        return encrypt(request, SymmetricCryptoService.KeyScope.SERVICE);
-    }
+    @PostMapping("/encrypt") public CipherResponse encryptService(@Valid @RequestBody EncryptRequest request,
+            @RequestHeader(value="X-Service-Token", required=false) String token) { return encrypt(request, token, Scope.SERVICE); }
+    @PostMapping("/decrypt") public DataResponse decryptService(@Valid @RequestBody DecryptRequest request,
+            @RequestHeader(value="X-Service-Token", required=false) String token) { return decrypt(request, token, Scope.SERVICE); }
+    @PostMapping("/web/encrypt") public CipherResponse encryptWeb(@Valid @RequestBody EncryptRequest request,
+            @RequestHeader(value="X-Web-Token", required=false) String token) { return encrypt(request, token, Scope.WEB); }
+    @PostMapping("/web/decrypt") public DataResponse decryptWeb(@Valid @RequestBody DecryptRequest request,
+            @RequestHeader(value="X-Web-Token", required=false) String token) { return decrypt(request, token, Scope.WEB); }
 
-    @PostMapping("/web/encrypt")
-    public CipherResponse encryptFromWeb(@Valid @RequestBody EncryptRequest request) {
-        return encrypt(request, SymmetricCryptoService.KeyScope.WEB);
+    @PostMapping("/web/decrypt-for-client") public CipherResponse decryptForClient(@Valid @RequestBody ClientDecryptRequest request,
+            @RequestHeader(value="X-Web-Token", required=false) String token) {
+        authorize(token, Scope.WEB);
+        try { return new CipherResponse(crypto.encrypt(crypto.decrypt(request.data(), Scope.WEB), request.recipientPublicKey(), Scope.WEB)); }
+        catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Objeto cifrado inválido", ex); }
+    }    private CipherResponse encrypt(EncryptRequest request, String token, Scope scope) {
+        authorize(token, scope);
+        try { return new CipherResponse(crypto.encrypt(request.data(), request.recipientPublicKey(), scope)); }
+        catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No se pudo cifrar el objeto", ex); }
     }
-
-    private CipherResponse encrypt(EncryptRequest request, SymmetricCryptoService.KeyScope scope) {
-        try {
-            String json = objectMapper.writeValueAsString(request.data());
-            var payload = cryptoService.encrypt(json, scope);
-            return new CipherResponse(payload.data());
-        } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El objeto data no se pudo serializar", e);
-        } catch (GeneralSecurityException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al cifrar", e);
-        }
+    private DataResponse decrypt(DecryptRequest request, String token, Scope scope) {
+        authorize(token, scope);
+        try { return new DataResponse(crypto.decrypt(request.data(), scope)); }
+        catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Objeto cifrado inválido", ex); }
     }
-
-    @PostMapping("/decrypt")
-    public DataResponse decrypt(@Valid @RequestBody DecryptRequest request) {
-        return decrypt(request, SymmetricCryptoService.KeyScope.SERVICE);
+    private void authorize(String token, Scope scope) {
+        if (!crypto.acceptsToken(token, scope)) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Integración no autorizada");
     }
-
-    @PostMapping("/web/decrypt")
-    public ResponseEntity<?> decryptFromWeb(@Valid @RequestBody DecryptRequest request) {
-        try {
-            return ResponseEntity.ok(decrypt(request, SymmetricCryptoService.KeyScope.WEB));
-        } catch (ResponseStatusException e) {
-            if (e.getStatusCode().value() == HttpStatus.BAD_REQUEST.value()) {
-                return ResponseEntity.badRequest().body(new ErrorResponse("Objeto cifrado corrupto"));
-            }
-            throw e;
-        }
-    }
-
-    private DataResponse decrypt(DecryptRequest request, SymmetricCryptoService.KeyScope scope) {
-        try {
-            String json = cryptoService.decrypt(request.data(), scope);
-            return new DataResponse(objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {}));
-        } catch (IllegalArgumentException | GeneralSecurityException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Texto cifrado inválido", e);
-        } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "El contenido descifrado no es un objeto JSON", e);
-        }
-    }
-
-    public record EncryptRequest(@NotNull Map<String, Object> data) {}
+    public record EncryptRequest(@NotNull JsonNode data, String recipientPublicKey) {}
     public record DecryptRequest(@NotBlank String data) {}
+    public record ClientDecryptRequest(@NotBlank String data, @NotBlank String recipientPublicKey) {}
     public record CipherResponse(String data) {}
-    public record DataResponse(Map<String, Object> data) {}
-    public record ErrorResponse(String message) {}
+    public record DataResponse(JsonNode data) {}
 }
+

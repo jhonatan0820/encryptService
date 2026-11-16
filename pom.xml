@@ -2,9 +2,9 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.example</groupId>
   <artifactId>encryptService</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>1.0.1-SNAPSHOT</version>
   <name>encryptService</name>
-  <description>Servicio REST para cifrado autenticado de payloads JSON con AES-256-GCM</description>
+  <description>Servicio REST para cifrado híbrido RSA-OAEP y AES-256-GCM de payloads JSON</description>
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
@@ -21,3 +21,4 @@
   </dependencies>
   <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>
 </project>
+

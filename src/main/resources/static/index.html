@@ -387,7 +387,7 @@
           <span class="brand-name">encryptService</span><br>
           <span class="brand-caption">Protección de datos</span>
         </span>
-        <span class="algorithm">AES-256-GCM</span>
+        <span class="algorithm">RSA-OAEP + AES-256-GCM</span>
       </div>
       <h1>Cifra y descifra datos</h1>
       <p class="intro">Cifra objetos JSON para intercambiarlos con tus aplicaciones.</p>
@@ -426,21 +426,7 @@
         </div>
       </section>
 
-      <section class="card" aria-labelledby="decryptTitle">
-        <h2 id="decryptTitle">Descifrar</h2>
-        <p class="hint">Pega la cadena cifrada recibida en el campo <code>data</code>.</p>
-        <label for="decryptInput">Valor de data</label>
-        <textarea id="decryptInput" spellcheck="false" placeholder="Pega aquí el valor Base64 cifrado"></textarea>
-        <div class="actions">
-          <button id="decryptButton" type="button">Descifrar objeto</button>
-          <button id="clearDecrypt" class="secondary" type="button">Limpiar</button>
-        </div>
-        <div id="decryptStatus" class="status" role="status" aria-live="polite"></div>
-        <div id="decryptedResult" class="result" hidden>
-          <label for="plainResult">Objeto descifrado</label>
-          <textarea id="plainResult" spellcheck="false" readonly></textarea>
-        </div>
-      </section>
+      <section class="card" aria-labelledby="decryptTitle"><h2 id="decryptTitle">Descifrar</h2><p class="hint">Pega una cadena creada con la llave web. La respuesta también viaja cifrada para este navegador.</p><label for="decryptInput">Valor cifrado</label><textarea id="decryptInput" spellcheck="false"></textarea><div class="actions"><button id="decryptButton" type="button">Descifrar valor</button></div><div id="decryptStatus" class="status" role="status" aria-live="polite"></div><div id="decryptResultSection" class="result" hidden><label for="decryptResult">JSON descifrado</label><textarea id="decryptResult" readonly></textarea></div></section>
     </div>
     <footer class="site-footer">
       <span>Desarrollado por Jhonatan Zambrano</span>
@@ -474,19 +460,53 @@
       toastTimeout = setTimeout(() => toast.classList.remove("visible"), 2500);
     }
 
-    async function postJson(path, body) {
-      const response = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(body)
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(result.message || result.error || `Error HTTP ${response.status}`);
-      }
-      return result;
+    function fromBase64(value) {
+      const binary = atob(value);
+      return Uint8Array.from(binary, character => character.charCodeAt(0));
     }
-
+    function toBase64(bytes) {
+      let binary = '';
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    }
+    let publicKeyPromise;
+    let webConfigPromise;
+    async function webConfig() {
+      if (!webConfigPromise) webConfigPromise = fetch('/cryptoService/web/config', { cache: 'no-store' }).then(r => r.json());
+      return webConfigPromise;
+    }
+    async function compactEncrypt(value, publicKey) {
+      const aesKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+      const rawKey = await crypto.subtle.exportKey('raw', aesKey);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, aesKey, new TextEncoder().encode(JSON.stringify(value)));
+      const wrapped = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, rawKey));
+      const out = new Uint8Array(3 + wrapped.length + 12 + ciphertext.byteLength);
+      out[0]=1; out[1]=wrapped.length>>>8; out[2]=wrapped.length&255; out.set(wrapped,3); out.set(iv,3+wrapped.length); out.set(new Uint8Array(ciphertext),15+wrapped.length);
+      return toBase64(out);
+    }
+    async function compactDecrypt(value, privateKey) {
+      const packed=fromBase64(value); if(packed.length<31||packed[0]!==1) throw new Error('Cadena cifrada inválida');
+      const n=(packed[1]<<8)|packed[2]; if(!n||packed.length<3+n+28) throw new Error('Cadena cifrada truncada');
+      const raw=await crypto.subtle.decrypt({name:'RSA-OAEP'},privateKey,packed.slice(3,3+n));
+      const aes=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['decrypt']);
+      const clear=await crypto.subtle.decrypt({name:'AES-GCM',iv:packed.slice(3+n,15+n),tagLength:128},aes,packed.slice(15+n));
+      return JSON.parse(new TextDecoder().decode(clear));
+    }
+    async function encryptForService(value) {
+      const config=await webConfig();
+      const key=await crypto.subtle.importKey('spki',fromBase64(config.publicKeyBase64),{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
+      return compactEncrypt(value,key);
+    }
+    async function decryptFromService(value) {
+      const config=await webConfig();
+      const pair=await crypto.subtle.generateKey({name:'RSA-OAEP',modulusLength:3072,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['encrypt','decrypt']);
+      const publicKeyBase64=toBase64(new Uint8Array(await crypto.subtle.exportKey('spki',pair.publicKey)));
+      const privateKey=await crypto.subtle.importKey('pkcs8',new Uint8Array(await crypto.subtle.exportKey('pkcs8',pair.privateKey)),{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']);
+      const response=await fetch('/cryptoService/web/decrypt-for-client',{method:'POST',headers:{'Content-Type':'application/json','X-Web-Token':config.webToken},body:JSON.stringify({data:value,recipientPublicKey:publicKeyBase64})});
+      const result=await response.json(); if(!response.ok||typeof result.data!=='string') throw new Error('No se pudo descifrar el valor.');
+      return compactDecrypt(result.data,privateKey);
+    }
     async function withButton(buttonId, statusId, action) {
       const button = byId(buttonId);
       button.disabled = true;
@@ -507,21 +527,22 @@
       if (!data || Array.isArray(data) || typeof data !== "object") {
         throw new Error("El contenido debe ser un objeto JSON.");
       }
-      const result = await postJson("/cryptoService/web/encrypt", { data });
-      byId("cipherInput").value = result.data;
+      const envelope = await encryptForService(data);
+      byId("cipherInput").value = envelope;
       byId("encryptedResult").hidden = false;
       setStatus("encryptStatus", "Objeto cifrado correctamente.", "success");
     }));
 
     byId("decryptButton").addEventListener("click", () => withButton("decryptButton", "decryptStatus", async () => {
-      const data = byId("decryptInput").value.trim();
-      if (!data) throw new Error("Pega el valor cifrado en data.");
-      const result = await postJson("/cryptoService/web/decrypt", { data });
-      byId("plainResult").value = JSON.stringify(result.data, null, 2);
-      byId("decryptedResult").hidden = false;
+      byId("decryptResultSection").hidden = true;
+      byId("decryptResult").value = "";
+      const value = byId("decryptInput").value.trim();
+      if (!value) throw new Error("Pega una cadena cifrada.");
+      const clear = await decryptFromService(value);
+      byId("decryptResult").value = JSON.stringify(clear, null, 2);
+      byId("decryptResultSection").hidden = false;
       setStatus("decryptStatus", "Objeto descifrado correctamente.", "success");
     }));
-
     let copyResetTimeout;
     let toastTimeout;
 
@@ -555,12 +576,14 @@
       setStatus("encryptStatus", "");
     });
 
-    byId("clearDecrypt").addEventListener("click", () => {
-      byId("decryptInput").value = "";
-      byId("plainResult").value = "";
-      byId("decryptedResult").hidden = true;
-      setStatus("decryptStatus", "");
-    });
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+

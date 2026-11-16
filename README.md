@@ -1,161 +1,89 @@
-<div align="center">
+# EncryptService
 
-# encryptService
+EncryptService cifra y descifra objetos JSON para la aplicación web y para las integraciones entre backends. Usa cifrado híbrido: RSA-OAEP con SHA-256 protege una llave AES-256 aleatoria y AES-256-GCM cifra el contenido.
 
-**Una capa común para cifrar e intercambiar payloads JSON sensibles.**
+Cada operación devuelve el ciphertext en un solo campo:
 
-Java 17 · Spring Boot 3 · AES-256-GCM · REST
-
-</div>
-
----
-
-## El problema
-
-En producción, algunos desarrollos estaban devolviendo información sensible en texto claro. Además del riesgo de exposición, cada aplicación podía terminar resolviendo el cifrado de forma distinta.
-
-`encryptService` centraliza esa operación: recibe un objeto JSON y devuelve un único valor cifrado en `data`. Las aplicaciones consumidoras integran un contrato común para proteger sus payloads antes de entregarlos a otros componentes.
-
-El cifrado es una capa adicional de protección. No sustituye HTTPS, autenticación, autorización ni controles de acceso a los datos.
-
-## La solución
-
-El servicio serializa el objeto JSON y lo cifra usando **AES-256-GCM**. Para cada operación genera un IV aleatorio de 12 bytes y lo empaqueta con el contenido cifrado y su etiqueta de autenticación en una cadena Base64. El microservicio mantiene un solo campo `data`; el IV y la clave no se exponen como campos separados.
-
-Hay una clave para las integraciones entre servicios y otra para el front web. El front incluido consume su propio conjunto de rutas.
-
-```mermaid
-flowchart LR
-    A[Aplicación cliente] -->|POST con objeto data| B[encryptService]
-    B -->|AES-256-GCM| C[Respuesta con data cifrada]
-    C --> A
-    A -->|POST con data cifrada| B
-    B -->|Objeto JSON descifrado| A
+```json
+{ "data": "<cadena Base64 compacta>" }
 ```
 
-## Stack
+La cadena Base64 contiene, en orden, una versión de formato (`0x01`), dos bytes con la longitud de la llave RSA envuelta, la llave AES envuelta, el IV de 12 bytes y el ciphertext con la etiqueta GCM. Así el vector y el resto del sobre viajan juntos en `data`.
 
-| Área | Tecnología |
-| --- | --- |
-| Lenguaje | Java 17 |
-| Framework | Spring Boot 3.4.3 |
-| API | Spring Web y REST |
-| Validación | Jakarta Bean Validation |
-| Cifrado | AES-256-GCM, IV de 12 bytes, etiqueta de 128 bits |
-| Serialización | JSON con Jackson |
-| Front de demostración | HTML, CSS y JavaScript |
-| Build | Maven |
+## Dos alcances aislados
 
-## MICROSERVICIO
+El servicio mantiene un par RSA y un token distintos para cada alcance:
 
-el MICROSERVICIO escucha en el puerto `8080`.
+| Alcance | Llave pública | Llave privada | Token |
+| --- | --- | --- | --- |
+| Web | `crypto.web-rsa.public-key-spki-base64` | Solo en EncryptService | `crypto.web-token` |
+| Back-to-back | `crypto.rsa.public-key-spki-base64` | Solo en EncryptService | `crypto.service-token` |
 
-### Integraciones entre servicios
+El token web puede llegar al navegador mediante `/cryptoService/web/config`. Solo autoriza endpoints web y no permite descifrar contenido cifrado para la llave pública de servicio. La llave privada y el token de servicio nunca se entregan al navegador. Todos los endpoints que cifran o descifran requieren el token de su alcance en `X-Web-Token` o `X-Service-Token`.
 
-#### Cifrar — `POST /cryptoService/encrypt`
+## Endpoints
 
-Solicitud:
+Las rutas de llave pública no requieren token:
+
+- `GET /cryptoService/public-key`: devuelve `{ "publicKeyBase64": "..." }` para integraciones B2B.
+- `GET /cryptoService/web/public-key`: devuelve la llave pública web.
+- `GET /cryptoService/web/config`: devuelve la llave pública web y `webToken`; se usa en la demo del navegador.
+
+Las operaciones de servicio requieren `X-Service-Token`:
+
+- `POST /cryptoService/encrypt`: cifra el JSON de `data` para la llave pública de servicio. Puede incluir `recipientPublicKey` para cifrar la respuesta de una aplicación a una llave RSA efímera.
+- `POST /cryptoService/decrypt`: recibe `data` como cadena Base64 y devuelve el JSON descifrado. Está pensado para el backend que debe procesar el contenido.
+
+Las operaciones web requieren `X-Web-Token`:
+
+- `POST /cryptoService/web/encrypt`: cifra el JSON de `data` con la llave web o con `recipientPublicKey` si se envía.
+- `POST /cryptoService/web/decrypt`: descifra un valor de alcance web y devuelve el JSON claro para que un backend autorizado procese su contenido.
+- `POST /cryptoService/web/decrypt-for-client`: descifra `data` y vuelve a cifrar el resultado para `recipientPublicKey`. La respuesta es `{ "data": "<ciphertext Base64>" }`; este es el endpoint que usa la demo para que el navegador pueda mostrar el resultado sin recibirlo en claro por HTTP.
+
+Ejemplo de request de descifrado:
+
+```json
+{ "data": "<cadena Base64 compacta>" }
+```
+
+Ejemplo de cifrado para una llave efímera:
 
 ```json
 {
-  "data": {
-    "customerId": "CUST-1042",
-    "accountStatus": "ACTIVE"
-  }
+  "data": { "mensaje": "contenido" },
+  "recipientPublicKey": "<SPKI Base64 del destinatario>"
 }
 ```
 
-Respuesta:
+## Demo web
 
-```json
-{
-  "data": "<payload-cifrado-en-base64>"
-}
-```
+La página `/` tiene dos flujos:
 
-#### Descifrar — `POST /cryptoService/decrypt`
+1. **Cifrar:** carga la llave pública y el token web, cifra el JSON localmente en el navegador y muestra la cadena compacta lista para enviar en `data`.
+2. **Descifrar:** el navegador genera un par RSA efímero y envía el ciphertext, la llave pública efímera y `X-Web-Token` a `/cryptoService/web/decrypt-for-client`. EncryptService descifra con la llave web y cifra la respuesta para la llave efímera. El navegador la descifra localmente. La sección «JSON descifrado» aparece solo después de un descifrado exitoso.
 
-Solicitud:
+## Secretos y ejecución
 
-```json
-{
-  "data": "<payload-cifrado-en-base64>"
-}
-```
-
-Respuesta:
-
-```json
-{
-  "data": {
-    "customerId": "CUST-1042",
-    "accountStatus": "ACTIVE"
-  }
-}
-```
-
-### Front web
-
-El front de demostración usa rutas con una clave separada:
-
-- `POST /cryptoService/web/encrypt`
-- `POST /cryptoService/web/decrypt`
-
-Abre [https://encryptService.dotacioneszambrano.com/](https://encryptService.dotacioneszambrano.com/) para usar la interfaz web.
-
-## Formato e interoperabilidad
-
-El campo `data` cifrado es `Base64(IV || ciphertext || tag)`: los primeros 12 bytes decodificados son el IV; el resto contiene el texto cifrado y la etiqueta GCM de 128 bits.
-
-Para interoperar desde otro lenguaje, usa AES/GCM/NoPadding, la clave de 32 bytes correspondiente y el mismo orden de bytes.
-
-## Ejecución local
-
-Requisitos:
-
-- JDK 17
-- Maven 3.6 o superior
-
-`application.properties` incluye el perfil `secrets`. Crea un archivo `application-secrets.yml` en la raíz del proyecto con dos claves AES-256 distintas, codificadas en Base64:
+`application-secrets.yml` está excluido de Git y debe existir junto al proyecto en local o montarse en `/app/application-secrets.yml` en Docker. Contiene la configuración con esta estructura:
 
 ```yaml
 crypto:
-  aes:
-    service-key: "<clave para integraciones>"
-    web-key: "<clave distinta para el front>"
+  rsa:
+    private-key-pkcs8-base64: "<llave privada PKCS8 Base64 del alcance B2B>"
+    public-key-spki-base64: "<llave pública SPKI Base64 del alcance B2B>"
+  web-rsa:
+    private-key-pkcs8-base64: "<llave privada PKCS8 Base64 del alcance web>"
+    public-key-spki-base64: "<llave pública SPKI Base64 del alcance web>"
+  service-token: "<token aleatorio B2B>"
+  web-token: "<token aleatorio web distinto>"
 ```
 
-Genera cada clave de forma independiente:
+Cada par RSA debe coincidir y tener al menos 3072 bits. Conserva las dos llaves privadas solo en EncryptService. Copia cada token únicamente a los backends que usan su alcance; nunca reutilices el token web como token de servicio. En despliegue, sirve el servicio por HTTPS.
 
-```bash
-openssl rand -base64 32
-```
+La aplicación escucha en el puerto `8080` por defecto (`SERVER_PORT` lo puede cambiar). Para ejecutar localmente con Maven:
 
-El archivo `application-secrets.yml` está excluido de Git.
-
-Cambiar el puerto de ejecucion en el `application.properties` por el 8081
-
-Inicia la aplicación desde la raíz del proyecto:
-
-```bash
+```powershell
 mvn spring-boot:run
 ```
 
-
-## Estructura
-
-```text
-src/main/java/com/example/encryptservice/
-├── EncryptServiceApplication.java
-├── controller/CryptoController.java
-└── service/SymmetricCryptoService.java
-
-src/main/resources/
-├── application.properties
-└── static/index.html
-```
-
-## Autor
-
-**Jhonatan Zambrano**  
-[GitHub](https://github.com/jhonatan0820) · [jhonizam2023@gmail.com](mailto:jhonizam2023@gmail.com)
+Para desplegar con Docker Compose, el archivo `application-secrets.yml` se monta como solo lectura y el servicio expone el puerto interno `8080` a la red `homelab`.

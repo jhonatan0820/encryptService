@@ -1,6 +1,6 @@
 # EncryptService
 
-EncryptService cifra y descifra objetos JSON para la aplicación web y para las integraciones entre backends. Usa cifrado híbrido: RSA-OAEP con SHA-256 protege una llave AES-256 aleatoria y AES-256-GCM cifra el contenido.
+EncryptService cifra y descifra objetos JSON para la aplicación web y para las integraciones entre backends. El transporte web y los mensajes dirigidos a una llave pública usan cifrado híbrido: RSA-OAEP con SHA-256 protege una llave AES-256 aleatoria y AES-256-GCM cifra el contenido. Los mensajes de servicio sin destinatario RSA usan AES-256-GCM con una llave derivada y separada por código de servicio.
 
 Cada operación devuelve el ciphertext en un solo campo:
 
@@ -8,7 +8,7 @@ Cada operación devuelve el ciphertext en un solo campo:
 { "data": "<cadena Base64 compacta>" }
 ```
 
-La cadena Base64 contiene, en orden, una versión de formato (`0x01`), dos bytes con la longitud de la llave RSA envuelta, la llave AES envuelta, el IV de 12 bytes y el ciphertext con la etiqueta GCM. Así el vector y el resto del sobre viajan juntos en `data`.
+El sobre híbrido RSA (`0x01`) contiene la versión, la longitud de la llave AES envuelta, la llave, el IV de 12 bytes y el ciphertext con etiqueta GCM. El sobre AES de servicio (`0x02`) contiene la versión, el código ASCII de cuatro letras, el IV y el ciphertext con etiqueta GCM. En ambos formatos, el vector y el ciphertext viajan juntos en `data`.
 
 ## Demo pública
 
@@ -35,8 +35,8 @@ Las rutas de llave pública no requieren token:
 
 Las operaciones de servicio requieren `X-Service-Token`:
 
-- `POST /cryptoService/encrypt`: cifra el JSON de `data` para la llave pública de servicio. Puede incluir `recipientPublicKey` para cifrar la respuesta de una aplicación a una llave RSA efímera.
-- `POST /cryptoService/decrypt`: recibe `data` como cadena Base64 y devuelve el JSON descifrado. Está pensado para el backend que debe procesar el contenido.
+- `POST /cryptoService/encrypt`: sin `recipientPublicKey`, requiere `X-Service-Code` de cuatro letras (por ejemplo `TOKN` o `ZINV`) y cifra usando AES-GCM con una llave derivada en el servidor. Si se incluye `recipientPublicKey`, cifra con el sobre RSA híbrido para ese destinatario.
+- `POST /cryptoService/decrypt`: recibe `data` como cadena Base64 y devuelve el JSON descifrado. Los sobres `0x02` llevan el código dentro; `X-Service-Code`, si se envía, debe coincidir. También acepta sobres RSA `0x01` ya emitidos.
 
 Las operaciones web requieren `X-Web-Token`:
 
@@ -49,6 +49,8 @@ Ejemplo de request de descifrado:
 ```json
 { "data": "<cadena Base64 compacta>" }
 ```
+
+Para cifrado simétrico de servicio, envía `X-Service-Token` y `X-Service-Code: TOKN` (o el código asignado al servicio), con el mismo JSON `{ "data": ... }`. El código solo selecciona la llave derivada; el token autoriza la llamada. Los códigos asignados en esta integración son `TOKN` (TokenService) y `ZINV` (ZInventory). La llave AES nunca se envía al cliente.
 
 Ejemplo de cifrado para una llave efímera:
 
@@ -63,7 +65,7 @@ Ejemplo de cifrado para una llave efímera:
 
 La página `/` tiene dos flujos:
 
-1. **Cifrar:** carga la llave pública y el token web, cifra el JSON localmente en el navegador y muestra la cadena compacta lista para enviar en `data`.
+1. **Cifrar:** carga la llave pública web y el token web, cifra el JSON localmente en el navegador y muestra la cadena compacta lista para enviar en `data`.
 2. **Descifrar:** el navegador genera un par RSA efímero y envía el ciphertext, la llave pública efímera y `X-Web-Token` a `/cryptoService/web/decrypt-for-client`. EncryptService descifra con la llave web y cifra la respuesta para la llave efímera. El navegador la descifra localmente. La sección «JSON descifrado» aparece solo después de un descifrado exitoso.
 
 ## Secretos y ejecución

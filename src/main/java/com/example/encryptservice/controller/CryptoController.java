@@ -35,9 +35,23 @@ public class CryptoController {
     }
 
     @PostMapping("/encrypt") public CipherResponse encryptService(@Valid @RequestBody EncryptRequest request,
-            @RequestHeader(value="X-Service-Token", required=false) String token) { return encrypt(request, token, Scope.SERVICE); }
+            @RequestHeader(value="X-Service-Token", required=false) String token,
+            @RequestHeader(value="X-Service-Code", required=false) String serviceCode) {
+        authorize(token, Scope.SERVICE);
+        try {
+            String encrypted = request.recipientPublicKey() == null || request.recipientPublicKey().isBlank()
+                    ? crypto.encryptForService(request.data(), serviceCode)
+                    : crypto.encrypt(request.data(), request.recipientPublicKey(), Scope.SERVICE);
+            return new CipherResponse(encrypted);
+        } catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No se pudo cifrar el objeto", ex); }
+    }
     @PostMapping("/decrypt") public DataResponse decryptService(@Valid @RequestBody DecryptRequest request,
-            @RequestHeader(value="X-Service-Token", required=false) String token) { return decrypt(request, token, Scope.SERVICE); }
+            @RequestHeader(value="X-Service-Token", required=false) String token,
+            @RequestHeader(value="X-Service-Code", required=false) String serviceCode) {
+        authorize(token, Scope.SERVICE);
+        try { return new DataResponse(crypto.decrypt(request.data(), Scope.SERVICE, serviceCode)); }
+        catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Objeto cifrado inválido", ex); }
+    }
     @PostMapping("/web/encrypt") public CipherResponse encryptWeb(@Valid @RequestBody EncryptRequest request,
             @RequestHeader(value="X-Web-Token", required=false) String token) { return encrypt(request, token, Scope.WEB); }
     @PostMapping("/web/decrypt") public DataResponse decryptWeb(@Valid @RequestBody DecryptRequest request,

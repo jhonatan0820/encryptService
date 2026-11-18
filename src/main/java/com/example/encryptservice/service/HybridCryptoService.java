@@ -10,6 +10,7 @@ import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.interfaces.RSAKey;
+import javax.crypto.Mac;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -30,6 +31,8 @@ public class HybridCryptoService {
     private static final int TAG_BITS = 128;
     private static final int HEADER_BYTES = 3;
     private static final byte FORMAT_VERSION = 1;
+    private static final byte SERVICE_AES_VERSION = 2;
+    private static final int SERVICE_CODE_BYTES = 4;
     private static final OAEPParameterSpec OAEP = new OAEPParameterSpec(
             "SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT);
     private final KeyPair serviceKeys;
@@ -108,8 +111,47 @@ public class HybridCryptoService {
         return Base64.getEncoder().encodeToString(packed.array());
     }
 
+    /** AES-GCM envelope keyed by a service-specific key derived from the service token. */
+    public String encryptForService(JsonNode data, String serviceCode)
+            throws GeneralSecurityException, com.fasterxml.jackson.core.JsonProcessingException {
+        byte[] code = validateServiceCode(serviceCode);
+        byte[] iv = new byte[IV_BYTES];
+        random.nextBytes(iv);
+        byte[] aad = ByteBuffer.allocate(1 + SERVICE_CODE_BYTES).put(SERVICE_AES_VERSION).put(code).array();
+        Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
+        aes.init(Cipher.ENCRYPT_MODE, serviceKey(code), new GCMParameterSpec(TAG_BITS, iv));
+        aes.updateAAD(aad);
+        byte[] ciphertext = aes.doFinal(mapper.writeValueAsBytes(data));
+        ByteBuffer packed = ByteBuffer.allocate(aad.length + IV_BYTES + ciphertext.length);
+        packed.put(aad).put(iv).put(ciphertext);
+        return Base64.getEncoder().encodeToString(packed.array());
+    }
+
     public JsonNode decrypt(String encryptedValue, Scope scope) throws GeneralSecurityException, java.io.IOException {
+        return decrypt(encryptedValue, scope, null);
+    }
+
+    public JsonNode decrypt(String encryptedValue, Scope scope, String expectedServiceCode) throws GeneralSecurityException, java.io.IOException {
         byte[] packed = Base64.getDecoder().decode(encryptedValue);
+        if (packed.length > 1 && packed[0] == SERVICE_AES_VERSION) {
+            if (scope != Scope.SERVICE || packed.length < 1 + SERVICE_CODE_BYTES + IV_BYTES + TAG_BITS / 8)
+                throw new IllegalArgumentException("Sobre AES de servicio inválido");
+            ByteBuffer input = ByteBuffer.wrap(packed);
+            input.get();
+            byte[] code = new byte[SERVICE_CODE_BYTES]; input.get(code);
+            String codeText = new String(code, StandardCharsets.US_ASCII);
+            validateServiceCode(codeText);
+            if (expectedServiceCode != null && !expectedServiceCode.isBlank()
+                    && !expectedServiceCode.equals(codeText))
+                throw new IllegalArgumentException("El código de servicio no coincide con el sobre");
+            byte[] iv = new byte[IV_BYTES]; input.get(iv);
+            byte[] ciphertext = new byte[input.remaining()]; input.get(ciphertext);
+            byte[] aad = ByteBuffer.allocate(1 + SERVICE_CODE_BYTES).put(SERVICE_AES_VERSION).put(code).array();
+            Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
+            aes.init(Cipher.DECRYPT_MODE, serviceKey(code), new GCMParameterSpec(TAG_BITS, iv));
+            aes.updateAAD(aad);
+            return mapper.readTree(aes.doFinal(ciphertext));
+        }
         if (packed.length <= HEADER_BYTES + IV_BYTES + TAG_BITS / 8 || packed[0] != FORMAT_VERSION)
             throw new IllegalArgumentException("Sobre cifrado inválido");
         ByteBuffer input = ByteBuffer.wrap(packed);
@@ -127,6 +169,19 @@ public class HybridCryptoService {
         Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
         aes.init(Cipher.DECRYPT_MODE, new SecretKeySpec(rawAesKey, "AES"), new GCMParameterSpec(TAG_BITS, iv));
         return mapper.readTree(aes.doFinal(ciphertext));
+    }
+
+    private SecretKey serviceKey(byte[] code) throws GeneralSecurityException {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(serviceToken.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        mac.update("EncryptService/AES-GCM/v2/".getBytes(StandardCharsets.US_ASCII));
+        return new SecretKeySpec(mac.doFinal(code), "AES");
+    }
+
+    private static byte[] validateServiceCode(String value) {
+        if (value == null || !value.matches("[A-Z]{4}"))
+            throw new IllegalArgumentException("X-Service-Code debe contener exactamente cuatro letras mayúsculas");
+        return value.getBytes(StandardCharsets.US_ASCII);
     }
 
     private KeyPair keyPair(Scope scope) { return scope == Scope.WEB ? webKeys : serviceKeys; }

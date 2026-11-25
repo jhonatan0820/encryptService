@@ -27,6 +27,7 @@ jobs:
           CONTAINER="encryptService"
           SERVICE="encrypt-service"
           HEALTH_PATH="/api/crypto/public-key"
+          ROLLBACK_HEALTH_PATH="/cryptoService/web/public-key"
           STAMP=$(date +%Y%m%d-%H%M%S)
           BACKUP_DIR="$BACKUP_ROOT/$STAMP"
 
@@ -77,11 +78,10 @@ jobs:
             echo "Checking rollback health..."
 
             for i in $(seq 1 30); do
-              IP=$(docker inspect -f \
-                '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER")
+              IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' "$CONTAINER" | head -n1)
 
               if [ -n "$IP" ] && \
-                curl -fsS "http://$IP:8080$HEALTH_PATH" >/dev/null; then
+                curl -fsS "http://$IP:8080$ROLLBACK_HEALTH_PATH" >/dev/null; then
                 echo "$OLD_COMMIT" > "$BACKUP_ROOT/current-deployed-commit"
                 echo "Rollback successful."
                 exit 1
@@ -110,11 +110,10 @@ jobs:
           HEALTHY=false
           
           for i in $(seq 1 30); do
-            IP=$(docker inspect -f \
-              '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' encryptService)
+            IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' "$CONTAINER" | head -n1)
 
             if [ -n "$IP" ] && \
-              curl -fsS "http://$IP:8080/api/crypto/public-key" >/dev/null; then
+              curl -fsS "http://$IP:8080$HEALTH_PATH" >/dev/null; then
               HEALTHY=true
               break
             fi
@@ -124,6 +123,8 @@ jobs:
 
           if [ "$HEALTHY" != "true" ]; then
             echo "Health check failed"
+            echo "Recent container logs:"
+            docker logs --tail 100 "$CONTAINER" || true
             rollback
           fi
 

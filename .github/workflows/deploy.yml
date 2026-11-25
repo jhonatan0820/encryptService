@@ -26,7 +26,7 @@ jobs:
           BACKUP_ROOT="/opt/homelab/backups/encryptservice"
           CONTAINER="encryptService"
           SERVICE="encrypt-service"
-          HEALTH_PATH="/cryptoService/web/public-key"
+          HEALTH_PATH="/api/crypto/public-key"
           STAMP=$(date +%Y%m%d-%H%M%S)
           BACKUP_DIR="$BACKUP_ROOT/$STAMP"
 
@@ -114,7 +114,7 @@ jobs:
               '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' encryptService)
 
             if [ -n "$IP" ] && \
-              curl -fsS "http://$IP:8080/cryptoService/web/public-key" >/dev/null; then
+              curl -fsS "http://$IP:8080/api/crypto/public-key" >/dev/null; then
               HEALTHY=true
               break
             fi
